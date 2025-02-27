@@ -13,7 +13,14 @@ import Video from "../models/videoModel.js"; // Adjust the path as needed
 
 const getAllVideos = asyncHandler(async (req, res) => {
   try {
-    const { page = 1, limit = 10, query, sortBy = "createdAt", sortType = "desc", userId } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      query,
+      sortBy = "createdAt",
+      sortType = "desc",
+      userId,
+    } = req.query;
 
     // Convert page and limit to integers
     const options = {
@@ -25,34 +32,39 @@ const getAllVideos = asyncHandler(async (req, res) => {
     const aggregationPipeline = [
       {
         $match: {
-          ...(userId && mongoose.isValidObjectId(userId) && { owner: mongoose.Types.ObjectId(userId) }),
+          ...(userId &&
+            mongoose.isValidObjectId(userId) && {
+              owner: mongoose.Types.ObjectId(userId),
+            }),
           ...(query && {
             $or: [
-              { title: { $regex: query, $options: "i" } },
-              { description: { $regex: query, $options: "i" } },
+              {title: {$regex: query, $options: "i"}},
+              {description: {$regex: query, $options: "i"}},
             ],
           }),
         },
       },
       {
-        $sort: { [sortBy]: sortType === "desc" ? -1 : 1 },
+        $sort: {[sortBy]: sortType === "desc" ? -1 : 1},
       },
     ];
 
     // Execute Aggregation with Pagination
-    const videos = await Video.aggregatePaginate(Video.aggregate(aggregationPipeline), options);
+    const videos = await Video.aggregatePaginate(
+      Video.aggregate(aggregationPipeline),
+      options
+    );
 
     res.status(200).json({
       success: true,
       data: videos,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({success: false, message: error.message});
   }
 });
 
 export default getAllVideos;
-
 
 const publishAVideo = asyncHandler(async (req, res) => {
   const {title, description} = req.body;
@@ -180,13 +192,16 @@ const deleteVideo = asyncHandler(async (req, res) => {
   const {videoId} = req.params;
   //TODO: delete video
 
-  if (!mongoose.Types.ObjectId.isValid(videoId)) {
+  if (!videoId || !mongoose.Types.ObjectId.isValid(videoId)) {
     throw new ApiError(400, "Invalid video ID");
   }
 
   const video = await Video.findById(videoId).select("thumbnail videoFile");
   if (!video) {
     throw new ApiError(404, "Video not found for deletion");
+  }
+  if (video.owner.toString() !== req.user?._id.toString()) {
+    throw new ApiError(401, "You do not have permission to delete this video");
   }
   const extractVideoUrl = (url) => {
     if (!url) {
@@ -208,8 +223,15 @@ const deleteVideo = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Video file not found for deletion");
   }
 
-  await deleteFromCloudinary(videoThumbnailPublicId);
-  await deleteFromCloudinary(videoFilePublicId);
+  const deleteThumbnail = await deleteFromCloudinary(videoThumbnailPublicId);
+  const deleteVideoFile = await deleteFromCloudinary(videoFilePublicId);
+  if (deleteThumbnail.result !== "ok") {
+    throw new ApiError(500, "Error while deleting thumbnail from Cloudinary");
+  }
+
+  if (deleteVideoFile.result !== "ok") {
+    throw new ApiError(500, "Error while deleting video from Cloudinary");
+  }
   const updatedUser = await User.findByIdAndUpdate(
     req.user?._id,
     {
@@ -227,7 +249,6 @@ const deleteVideo = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, deletedVideo, "Video deleted successfully"));
 });
-
 
 const togglePublishStatus = asyncHandler(async (req, res) => {
   const {videoId} = req.params;

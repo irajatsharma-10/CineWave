@@ -33,7 +33,7 @@ const uploadOnCloudinary = async (localFilePath, height, quality, folder) => {
         // if not found local file path or not uploaded on cloudinary
         // then remove the malicious files present in the server
         // this will remove the file link from the directory
-        // fs.unlinkSync(localFilePath);
+        fs.unlinkSync(localFilePath);
         return response;
 
     } catch (error) {
